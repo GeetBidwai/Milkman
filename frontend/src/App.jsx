@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
 import {
   clearTokens,
@@ -27,6 +27,10 @@ const today = new Date().toISOString().slice(0, 10);
 const CART_STORAGE_KEY = "milkman_cart_items";
 const ORDERS_STORAGE_KEY = "milkman_order_history";
 
+function getHomeRouteForRole(role) {
+  return role === "admin" ? "/admin" : "/products";
+}
+
 function Section({ title, children }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
@@ -51,6 +55,7 @@ function useDebouncedValue(value, delayMs = 350) {
 
 export default function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [authMode, setAuthMode] = useState("login");
   const [authError, setAuthError] = useState("");
   const [profileError, setProfileError] = useState("");
@@ -218,7 +223,25 @@ export default function App() {
     product.name.toLowerCase().includes(productQuery.trim().toLowerCase())
   );
   const isAuthenticated = Boolean(profile && getAccessToken());
+  const isAdmin = profile?.role === "admin";
+  const isCustomer = profile?.role === "customer";
+  const defaultAuthenticatedRoute = getHomeRouteForRole(profile?.role);
   const cartCount = cartItems.reduce((total, item) => total + item.quantity, 0);
+
+  useEffect(() => {
+    if (authBootstrapLoading || !isAuthenticated) {
+      return;
+    }
+    if (location.pathname === "/") {
+      navigate(defaultAuthenticatedRoute, { replace: true });
+    }
+  }, [
+    authBootstrapLoading,
+    defaultAuthenticatedRoute,
+    isAuthenticated,
+    location.pathname,
+    navigate,
+  ]);
 
   async function loadCategories() {
     try {
@@ -263,10 +286,12 @@ export default function App() {
         setCustomers([]);
         setCustomersError("");
       }
+      return profileData;
     } catch (error) {
       setProfileError(error.message);
       setProfile(null);
       clearTokens();
+      return null;
     } finally {
       setAuthBootstrapLoading(false);
     }
@@ -297,8 +322,10 @@ export default function App() {
       setAuthError("");
       const data = await loginUser(loginForm);
       setTokens(data);
-      await loadProfileAndSubscriptions();
-      navigate("/products");
+      const profileData = await loadProfileAndSubscriptions();
+      if (profileData) {
+        navigate(getHomeRouteForRole(profileData.role), { replace: true });
+      }
     } catch (error) {
       setAuthError(error.message);
     } finally {
@@ -313,8 +340,10 @@ export default function App() {
       setAuthError("");
       const data = await registerUser(registerForm);
       setTokens(data);
-      await loadProfileAndSubscriptions();
-      navigate("/products");
+      const profileData = await loadProfileAndSubscriptions();
+      if (profileData) {
+        navigate(getHomeRouteForRole(profileData.role), { replace: true });
+      }
     } catch (error) {
       setAuthError(error.message);
     } finally {
@@ -540,7 +569,6 @@ export default function App() {
       }
       return [...prev, { product, quantity: 1 }];
     });
-    navigate("/billing");
   }
 
   function handleUpdateCartQuantity(productId, quantity) {
@@ -808,9 +836,19 @@ export default function App() {
         </div>
         {categoriesError ? <p className="mt-3 text-sm text-red-600">{categoriesError}</p> : null}
         {productsError ? <p className="mt-3 text-sm text-red-600">{productsError}</p> : null}
-        <div className="mt-5 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-slate-800">Available Milk Products</h3>
-          <p className="text-xs text-slate-500">{searchedProducts.length} items</p>
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-slate-800">Available Milk Products</h3>
+            <p className="text-xs text-slate-500">{searchedProducts.length} items</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/billing")}
+            disabled={!cartItems.length}
+            className="rounded-md bg-brand-700 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {cartItems.length ? "Go to Billing" : "Cart empty"}
+          </button>
         </div>
         <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {productsLoading || categoriesLoading ? (
@@ -1448,15 +1486,35 @@ export default function App() {
       <nav className="mb-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm font-semibold uppercase tracking-widest text-brand-700">Milkman</p>
         <div className="flex flex-wrap gap-2 text-sm">
-          <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/login">
-            Login
-          </Link>
-          <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/products">
-            Products
-          </Link>
-          <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/billing">
-            Billing ({cartCount})
-          </Link>
+          {!isAuthenticated ? (
+            <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/login">
+              Login
+            </Link>
+          ) : null}
+          {isCustomer ? (
+            <>
+              <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/products">
+                Products
+              </Link>
+              <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/billing">
+                Billing ({cartCount})
+              </Link>
+            </>
+          ) : null}
+          {isAdmin ? (
+            <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/admin">
+              Dashboard
+            </Link>
+          ) : null}
+          {isAuthenticated ? (
+            <button
+              type="button"
+              className="rounded-md bg-slate-900 px-3 py-1 text-white"
+              onClick={handleLogout}
+            >
+              Logout
+            </button>
+          ) : null}
         </div>
       </nav>
     );
@@ -1470,11 +1528,31 @@ export default function App() {
         <Routes>
           <Route
             path="/"
-            element={<Navigate to="/login" replace />}
+            element={
+              authBootstrapLoading ? (
+                <Section title="Session">
+                  <p className="text-sm text-slate-600">Validating session...</p>
+                </Section>
+              ) : isAuthenticated ? (
+                <Navigate to={defaultAuthenticatedRoute} replace />
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
           />
           <Route
             path="/login"
-            element={<div className="mx-auto max-w-2xl">{AuthPanel()}</div>}
+            element={
+              authBootstrapLoading ? (
+                <Section title="Session">
+                  <p className="text-sm text-slate-600">Validating session...</p>
+                </Section>
+              ) : isAuthenticated ? (
+                <Navigate to={defaultAuthenticatedRoute} replace />
+              ) : (
+                <div className="mx-auto max-w-2xl">{AuthPanel()}</div>
+              )
+            }
           />
           <Route
             path="/products"
@@ -1483,13 +1561,14 @@ export default function App() {
                 <Section title="Session">
                   <p className="text-sm text-slate-600">Validating session...</p>
                 </Section>
-              ) : isAuthenticated ? (
+              ) : !isAuthenticated ? (
+                <Navigate to="/login" replace />
+              ) : !isCustomer ? (
+                <Navigate to="/admin" replace />
+              ) : (
                 <div className="grid gap-6">
                   {ProductPanel()}
-                  {profile?.role === "admin" ? AdminPanel() : null}
                 </div>
-              ) : (
-                <Navigate to="/login" replace />
               )
             }
           />
@@ -1500,10 +1579,28 @@ export default function App() {
                 <Section title="Session">
                   <p className="text-sm text-slate-600">Validating session...</p>
                 </Section>
-              ) : isAuthenticated ? (
-                <div className="grid gap-6">{BillingPanel()}</div>
-              ) : (
+              ) : !isAuthenticated ? (
                 <Navigate to="/login" replace />
+              ) : !isCustomer ? (
+                <Navigate to="/admin" replace />
+              ) : (
+                <div className="grid gap-6">{BillingPanel()}</div>
+              )
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              authBootstrapLoading ? (
+                <Section title="Session">
+                  <p className="text-sm text-slate-600">Validating session...</p>
+                </Section>
+              ) : !isAuthenticated ? (
+                <Navigate to="/login" replace />
+              ) : !isAdmin ? (
+                <Navigate to="/products" replace />
+              ) : (
+                <div className="grid gap-6">{AdminPanel()}</div>
               )
             }
           />
