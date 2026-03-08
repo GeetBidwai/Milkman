@@ -3,7 +3,14 @@ from rest_framework_simplejwt.views import TokenRefreshView
 
 from core.views import HealthCheckAPIView
 from products.views import CategoryDetailAPIView, CategoryListCreateAPIView
-from subscriptions.views import SubscriptionDetailAPIView, SubscriptionListCreateAPIView
+from subscriptions.views import (
+    AdminSubscriptionPlanDetailAPIView,
+    AdminSubscriptionPlanListCreateAPIView,
+    AdminSubscriptionListAPIView,
+    SubscriptionPlanListAPIView,
+    SubscriptionDetailAPIView,
+    SubscriptionListCreateAPIView,
+)
 from users.views import CustomerListAPIView, LoginAPIView, ProfileAPIView, RegisterAPIView
 
 urlpatterns = [
@@ -16,7 +23,19 @@ urlpatterns = [
     path("categories", CategoryListCreateAPIView.as_view(), name="categories"),
     path("categories/<int:category_id>", CategoryDetailAPIView.as_view(), name="category-detail"),
     path("", include("products.urls")),
+    path("plans", SubscriptionPlanListAPIView.as_view(), name="plans"),
     path("subscriptions", SubscriptionListCreateAPIView.as_view(), name="subscriptions"),
+    path("admin/plans", AdminSubscriptionPlanListCreateAPIView.as_view(), name="admin-plans"),
+    path(
+        "admin/plans/<int:plan_id>",
+        AdminSubscriptionPlanDetailAPIView.as_view(),
+        name="admin-plan-detail",
+    ),
+    path(
+        "admin/subscriptions",
+        AdminSubscriptionListAPIView.as_view(),
+        name="admin-subscriptions",
+    ),
     path(
         "subscriptions/<int:subscription_id>",
         SubscriptionDetailAPIView.as_view(),

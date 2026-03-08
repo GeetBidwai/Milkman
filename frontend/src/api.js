@@ -233,6 +233,39 @@ export async function getSubscriptions(params = {}) {
   return apiRequest(withQuery("/subscriptions", params), { auth: true });
 }
 
+export async function getPlans(params = {}) {
+  return apiRequest(withQuery("/plans", params));
+}
+
+export async function getAdminPlans(params = {}) {
+  return apiRequest(withQuery("/admin/plans", params), { auth: true });
+}
+
+export async function createPlan(payload) {
+  return apiRequest("/admin/plans", {
+    method: "POST",
+    auth: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updatePlan(planId, payload) {
+  return apiRequest(`/admin/plans/${planId}`, {
+    method: "PATCH",
+    auth: true,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deactivatePlan(planId) {
+  return apiRequest(`/admin/plans/${planId}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
 export async function createSubscription(payload) {
   return apiRequest("/subscriptions", {
     method: "POST",
@@ -249,6 +282,17 @@ export async function updateSubscription(subscriptionId, payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export async function deleteSubscription(subscriptionId) {
+  return apiRequest(`/subscriptions/${subscriptionId}`, {
+    method: "DELETE",
+    auth: true,
+  });
+}
+
+export async function getAdminSubscriptions(params = {}) {
+  return apiRequest(withQuery("/admin/subscriptions", params), { auth: true });
 }
 
 export async function getCustomers(params = {}) {

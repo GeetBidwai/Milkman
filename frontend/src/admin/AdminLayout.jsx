@@ -4,8 +4,10 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 const MENU_ITEMS = [
   { label: "Dashboard", to: "/admin/dashboard" },
   { label: "Products", to: "/admin/products" },
+  { label: "Plans", to: "/admin/plans" },
   { label: "Orders", to: "/admin/orders" },
   { label: "Customers", to: "/admin/customers" },
+  { label: "Subscriptions", to: "/admin/subscriptions" },
   { label: "Upload CSV", to: "/admin/upload-csv" },
 ];
 

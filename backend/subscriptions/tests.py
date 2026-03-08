@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from products.models import Category, Product
-from subscriptions.models import Subscription
+from subscriptions.models import Subscription, SubscriptionPlan
 
 User = get_user_model()
 
@@ -34,13 +34,18 @@ class SubscriptionAPITests(APITestCase):
             price="65.00",
             stock_quantity=30,
         )
+        self.daily_plan = SubscriptionPlan.objects.create(
+            product=self.product,
+            name="Daily Plan",
+            frequency=SubscriptionPlan.Frequency.DAILY,
+            price="60.00",
+            discount_percent=8,
+        )
 
     def test_customer_can_create_subscription(self):
         self.client.force_authenticate(user=self.customer_1)
         payload = {
-            "product": self.product.id,
-            "quantity": 2,
-            "delivery_frequency": Subscription.DeliveryFrequency.DAILY,
+            "plan": self.daily_plan.id,
             "start_date": str(date.today()),
         }
 
@@ -50,6 +55,8 @@ class SubscriptionAPITests(APITestCase):
         self.assertEqual(Subscription.objects.count(), 1)
         subscription = Subscription.objects.first()
         self.assertEqual(subscription.customer_id, self.customer_1.id)
+        self.assertEqual(subscription.plan_id, self.daily_plan.id)
+        self.assertEqual(subscription.product_id, self.product.id)
 
     def test_customer_cannot_subscribe_to_inactive_product(self):
         inactive_product = Product.objects.create(
@@ -292,3 +299,122 @@ class SubscriptionAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         subscription.refresh_from_db()
         self.assertEqual(subscription.status, Subscription.Status.PAUSED)
+
+    def test_customer_can_cancel_subscription_with_delete(self):
+        subscription = Subscription.objects.create(
+            customer=self.customer_1,
+            product=self.product,
+            quantity=1,
+            start_date=date.today(),
+            status=Subscription.Status.ACTIVE,
+        )
+
+        self.client.force_authenticate(user=self.customer_1)
+        response = self.client.delete(f"/api/subscriptions/{subscription.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        subscription.refresh_from_db()
+        self.assertEqual(subscription.status, Subscription.Status.CANCELED)
+        self.assertEqual(subscription.end_date, date.today())
+
+    def test_admin_can_view_admin_subscriptions_endpoint(self):
+        Subscription.objects.create(
+            customer=self.customer_1,
+            product=self.product,
+            quantity=1,
+            start_date=date.today(),
+        )
+
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.get("/api/admin/subscriptions")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+
+    def test_customer_cannot_access_admin_subscriptions_endpoint(self):
+        self.client.force_authenticate(user=self.customer_1)
+        response = self.client.get("/api/admin/subscriptions")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_customer_can_create_monthly_subscription(self):
+        monthly_plan = SubscriptionPlan.objects.create(
+            product=self.product,
+            name="Monthly Plan",
+            frequency=SubscriptionPlan.Frequency.MONTHLY,
+            price="1500.00",
+            discount_percent=15,
+        )
+        self.client.force_authenticate(user=self.customer_1)
+        payload = {
+            "plan": monthly_plan.id,
+            "start_date": str(date.today()),
+        }
+
+        response = self.client.post("/api/subscriptions", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["delivery_frequency"], Subscription.DeliveryFrequency.MONTHLY)
+
+    def test_customer_can_create_direct_product_subscription(self):
+        self.client.force_authenticate(user=self.customer_1)
+        payload = {
+            "product": self.product.id,
+            "frequency": Subscription.DeliveryFrequency.DAILY,
+        }
+
+        response = self.client.post("/api/subscriptions", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["product"], self.product.id)
+        self.assertEqual(response.data["frequency"], Subscription.DeliveryFrequency.DAILY)
+
+    def test_public_can_view_active_plans(self):
+        response = self.client.get("/api/plans")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["name"], "Daily Plan")
+
+    def test_admin_can_create_plan(self):
+        self.client.force_authenticate(user=self.admin_user)
+        payload = {
+            "product": self.product.id,
+            "name": "Weekly Saver",
+            "frequency": SubscriptionPlan.Frequency.WEEKLY,
+            "price": "400.00",
+            "discount_percent": 10,
+            "is_active": True,
+        }
+
+        response = self.client.post("/api/admin/plans", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(SubscriptionPlan.objects.count(), 2)
+
+    def test_admin_can_update_plan(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.patch(
+            f"/api/admin/plans/{self.daily_plan.id}",
+            {"price": "55.00", "discount_percent": 12},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.daily_plan.refresh_from_db()
+        self.assertEqual(str(self.daily_plan.price), "55.00")
+        self.assertEqual(self.daily_plan.discount_percent, 12)
+
+    def test_admin_can_deactivate_plan(self):
+        self.client.force_authenticate(user=self.admin_user)
+        response = self.client.delete(f"/api/admin/plans/{self.daily_plan.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.daily_plan.refresh_from_db()
+        self.assertFalse(self.daily_plan.is_active)
+
+    def test_customer_cannot_access_admin_plans(self):
+        self.client.force_authenticate(user=self.customer_1)
+        response = self.client.get("/api/admin/plans")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -7,6 +7,7 @@ import {
   getAccessToken,
   getCategories,
   getMediaUrl,
+  getPlans,
   getProducts,
   getProfile,
   getSubscriptions,
@@ -20,7 +21,10 @@ import AdminDashboard from "./admin/AdminDashboard";
 import AdminProducts from "./admin/AdminProducts";
 import AdminOrders from "./admin/AdminOrders";
 import AdminCustomers from "./admin/AdminCustomers";
+import AdminPlans from "./admin/AdminPlans";
 import AdminUploadCSV from "./admin/AdminUploadCSV";
+import AdminSubscriptions from "./admin/AdminSubscriptions";
+import MySubscriptions from "./pages/MySubscriptions";
 
 const today = new Date().toISOString().slice(0, 10);
 const CART_STORAGE_KEY = "milkman_cart_items";
@@ -34,6 +38,11 @@ const INITIAL_BILLING_FORM = {
   phone: "",
   address: "",
   payment_method: "cod",
+};
+const INITIAL_SUBSCRIPTION_MODAL_FORM = {
+  plan: "",
+  frequency: "daily",
+  start_date: today,
 };
 
 function getHomeRouteForRole(role) {
@@ -67,6 +76,9 @@ export default function App() {
   const [products, setProducts] = useState([]);
   const [productsError, setProductsError] = useState("");
   const [productsLoading, setProductsLoading] = useState(true);
+  const [plans, setPlans] = useState([]);
+  const [plansError, setPlansError] = useState("");
+  const [plansLoading, setPlansLoading] = useState(true);
   const [productQuery, setProductQuery] = useState("");
   const [productOrdering, setProductOrdering] = useState("name");
   const [subscriptions, setSubscriptions] = useState([]);
@@ -79,6 +91,10 @@ export default function App() {
   const [subscriptionOrdering, setSubscriptionOrdering] = useState("-created_at");
   const [subscriptionOffset, setSubscriptionOffset] = useState(0);
   const [hasMoreSubscriptions, setHasMoreSubscriptions] = useState(false);
+  const [subscriptionModalProduct, setSubscriptionModalProduct] = useState(null);
+  const [subscriptionModalForm, setSubscriptionModalForm] = useState(
+    INITIAL_SUBSCRIPTION_MODAL_FORM
+  );
   const [cartItems, setCartItems] = useState([]);
   const [productNotice, setProductNotice] = useState("");
   const [orderHistory, setOrderHistory] = useState([]);
@@ -126,6 +142,10 @@ export default function App() {
   useEffect(() => {
     loadProducts();
   }, [productOrdering, selectedCategory]);
+
+  useEffect(() => {
+    loadPlans();
+  }, []);
 
   useEffect(() => {
     if (profile) {
@@ -440,11 +460,80 @@ export default function App() {
     setSubscriptionMessage("");
     setSubscriptionError("");
     setSubscriptionFormError("");
-    setAdminMessage("");
-    setAdminError("");
+    setSubscriptionModalProduct(null);
+    setSubscriptionModalForm(INITIAL_SUBSCRIPTION_MODAL_FORM);
     setCartItems([]);
     setAuthBootstrapLoading(false);
     navigate("/login");
+  }
+
+  async function loadPlans() {
+    try {
+      setPlansLoading(true);
+      setPlansError("");
+      setPlans(await getPlans({ ordering: "product__name", limit: 200 }));
+    } catch (error) {
+      setPlansError(error.message);
+    } finally {
+      setPlansLoading(false);
+    }
+  }
+
+  function openSubscriptionModal(product) {
+    const productPlans = plans.filter((plan) => plan.product === product.id && plan.is_active);
+    setSubscriptionFormError("");
+    setSubscriptionError("");
+    setSubscriptionMessage("");
+    setSubscriptionModalProduct(product);
+    setSubscriptionModalForm({
+      plan: productPlans[0] ? String(productPlans[0].id) : "",
+      frequency: productPlans[0]?.frequency || "daily",
+      start_date: today,
+    });
+  }
+
+  function closeSubscriptionModal() {
+    setSubscriptionModalProduct(null);
+    setSubscriptionModalForm(INITIAL_SUBSCRIPTION_MODAL_FORM);
+    setSubscriptionFormError("");
+  }
+
+  async function handleModalSubscriptionSubmit(event) {
+    event.preventDefault();
+
+    if (!subscriptionModalProduct) {
+      return;
+    }
+    if (subscriptionModalForm.start_date < today) {
+      setSubscriptionFormError("Start date cannot be in the past.");
+      return;
+    }
+
+    try {
+      setSubscriptionActionLoading(true);
+      setSubscriptionFormError("");
+      setSubscriptionError("");
+      setSubscriptionMessage("");
+      const payload = subscriptionModalForm.plan
+        ? {
+            plan: Number(subscriptionModalForm.plan),
+            start_date: subscriptionModalForm.start_date,
+          }
+        : {
+            product: subscriptionModalProduct.id,
+            frequency: subscriptionModalForm.frequency,
+            start_date: subscriptionModalForm.start_date,
+          };
+      await createSubscription(payload);
+      setSubscriptionMessage("Subscription activated successfully");
+      closeSubscriptionModal();
+      await loadSubscriptions();
+      navigate("/my-subscriptions");
+    } catch (error) {
+      setSubscriptionError(error.message);
+    } finally {
+      setSubscriptionActionLoading(false);
+    }
   }
 
   function AuthPanel() {
@@ -637,6 +726,9 @@ export default function App() {
     return (
       <Section title="Product Catalog">
         {productNotice ? <p className="mb-3 text-sm text-emerald-700">{productNotice}</p> : null}
+        {subscriptionMessage ? <p className="mb-3 text-sm text-emerald-700">{subscriptionMessage}</p> : null}
+        {subscriptionError ? <p className="mb-3 text-sm text-rose-600">{subscriptionError}</p> : null}
+        {plansError ? <p className="mb-3 text-sm text-rose-600">{plansError}</p> : null}
         <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm text-slate-500">
@@ -708,6 +800,9 @@ export default function App() {
             searchedProducts.map((product) => {
               const cartItem = cartItems.find((item) => item.product.id === product.id);
               const quantity = cartItem?.quantity || 0;
+              const productPlanCount = plans.filter(
+                (plan) => plan.product === product.id && plan.is_active
+              ).length;
               return (
                 <div
                   key={product.id}
@@ -756,6 +851,29 @@ export default function App() {
                         </button>
                       </div>
                     </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAddToCart(product)}
+                        className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+                      >
+                        Add to Cart
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openSubscriptionModal(product)}
+                        className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        Subscribe
+                      </button>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {plansLoading
+                        ? "Loading plans..."
+                        : productPlanCount > 0
+                          ? `${productPlanCount} plan${productPlanCount > 1 ? "s" : ""} available`
+                          : "Direct subscription available"}
+                    </p>
                   </div>
                 </div>
               );
@@ -1152,6 +1270,12 @@ export default function App() {
               <Link className="rounded-md bg-slate-100 px-3 py-1 text-slate-800" to="/billing">
                 Billing ({cartCount})
               </Link>
+              <Link
+                className="rounded-md bg-slate-100 px-3 py-1 text-slate-800"
+                to="/my-subscriptions"
+              >
+                Subscriptions
+              </Link>
             </>
           ) : null}
           {isAdmin ? (
@@ -1173,10 +1297,137 @@ export default function App() {
     );
   }
 
+  const availablePlans = subscriptionModalProduct
+    ? plans.filter(
+        (plan) => plan.product === subscriptionModalProduct.id && plan.is_active
+      )
+    : [];
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-brand-50 to-white text-slate-900">
       <section className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         {TopNav()}
+
+        {subscriptionModalProduct && isCustomer ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 px-4">
+            <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.3em] text-slate-400">
+                    Subscription
+                  </p>
+                  <h3 className="mt-2 text-2xl font-bold text-slate-900">
+                    Subscribe to: {subscriptionModalProduct.name}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeSubscriptionModal}
+                  className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500"
+                >
+                  Close
+                </button>
+              </div>
+
+              <form className="mt-6 space-y-4" onSubmit={handleModalSubscriptionSubmit}>
+                <label className="grid gap-1 text-sm text-slate-600">
+                  <span>Available Plans</span>
+                  {availablePlans.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                      No active plans are available for this product. A direct subscription will be created instead.
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {availablePlans.map((plan) => {
+                        const isSelected = String(plan.id) === subscriptionModalForm.plan;
+                        return (
+                          <button
+                            key={plan.id}
+                            type="button"
+                            onClick={() =>
+                              setSubscriptionModalForm((prev) => ({
+                                ...prev,
+                                plan: String(plan.id),
+                                frequency: plan.frequency,
+                              }))
+                            }
+                            className={`rounded-2xl border px-4 py-3 text-left transition ${
+                              isSelected
+                                ? "border-brand-700 bg-brand-50"
+                                : "border-slate-200 bg-white hover:border-slate-400"
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-slate-900">{plan.name}</p>
+                                <p className="text-sm capitalize text-slate-500">
+                                  {plan.frequency} delivery
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-semibold text-brand-700">Rs {plan.price}</p>
+                                <p className="text-xs text-slate-500">
+                                  {plan.discount_percent}% discount
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </label>
+
+                <label className="grid gap-1 text-sm text-slate-600">
+                  <span>Select Frequency</span>
+                  <select
+                    className="rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={subscriptionModalForm.frequency}
+                    onChange={(event) =>
+                      setSubscriptionModalForm((prev) => ({
+                        ...prev,
+                        plan: "",
+                        frequency: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </label>
+
+                <label className="grid gap-1 text-sm text-slate-600">
+                  <span>Select Start Date</span>
+                  <input
+                    type="date"
+                    min={today}
+                    className="rounded-2xl border border-slate-200 px-3 py-2 text-sm"
+                    value={subscriptionModalForm.start_date}
+                    onChange={(event) =>
+                      setSubscriptionModalForm((prev) => ({
+                        ...prev,
+                        start_date: event.target.value,
+                      }))
+                    }
+                    required
+                  />
+                </label>
+
+                {subscriptionFormError ? (
+                  <p className="text-sm text-rose-600">{subscriptionFormError}</p>
+                ) : null}
+
+                <button
+                  disabled={subscriptionActionLoading}
+                  className="w-full rounded-2xl bg-brand-700 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {subscriptionActionLoading ? "Saving..." : "Confirm Subscription"}
+                </button>
+              </form>
+            </div>
+          </div>
+        ) : null}
 
         <Routes>
           <Route
@@ -1246,6 +1497,22 @@ export default function App() {
             }
           />
           <Route
+            path="/my-subscriptions"
+            element={
+              authBootstrapLoading ? (
+                <Section title="Session">
+                  <p className="text-sm text-slate-600">Validating session...</p>
+                </Section>
+              ) : !isAuthenticated ? (
+                <Navigate to="/login" replace />
+              ) : !isCustomer ? (
+                <Navigate to="/admin" replace />
+              ) : (
+                <MySubscriptions />
+              )
+            }
+          />
+          <Route
             path="/admin"
             element={
               authBootstrapLoading ? (
@@ -1264,8 +1531,10 @@ export default function App() {
             <Route index element={<Navigate to="dashboard" replace />} />
             <Route path="dashboard" element={<AdminDashboard />} />
             <Route path="products" element={<AdminProducts />} />
+            <Route path="plans" element={<AdminPlans />} />
             <Route path="orders" element={<AdminOrders />} />
             <Route path="customers" element={<AdminCustomers />} />
+            <Route path="subscriptions" element={<AdminSubscriptions />} />
             <Route path="upload-csv" element={<AdminUploadCSV />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
