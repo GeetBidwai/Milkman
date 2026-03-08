@@ -218,6 +218,17 @@ export async function deactivateProduct(productId) {
   });
 }
 
+export async function uploadProductsCsv(file) {
+  const body = new FormData();
+  body.append("file", file);
+
+  return apiRequest("/products/upload-csv/", {
+    method: "POST",
+    auth: true,
+    body,
+  });
+}
+
 export async function getSubscriptions(params = {}) {
   return apiRequest(withQuery("/subscriptions", params), { auth: true });
 }

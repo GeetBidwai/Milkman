@@ -1,13 +1,8 @@
-from django.urls import path
+from django.urls import include, path
 from rest_framework_simplejwt.views import TokenRefreshView
 
 from core.views import HealthCheckAPIView
-from products.views import (
-    CategoryDetailAPIView,
-    CategoryListCreateAPIView,
-    ProductDetailAPIView,
-    ProductListCreateAPIView,
-)
+from products.views import CategoryDetailAPIView, CategoryListCreateAPIView
 from subscriptions.views import SubscriptionDetailAPIView, SubscriptionListCreateAPIView
 from users.views import CustomerListAPIView, LoginAPIView, ProfileAPIView, RegisterAPIView
 
@@ -20,8 +15,7 @@ urlpatterns = [
     path("customers", CustomerListAPIView.as_view(), name="customers"),
     path("categories", CategoryListCreateAPIView.as_view(), name="categories"),
     path("categories/<int:category_id>", CategoryDetailAPIView.as_view(), name="category-detail"),
-    path("products", ProductListCreateAPIView.as_view(), name="products"),
-    path("products/<int:product_id>", ProductDetailAPIView.as_view(), name="product-detail"),
+    path("", include("products.urls")),
     path("subscriptions", SubscriptionListCreateAPIView.as_view(), name="subscriptions"),
     path(
         "subscriptions/<int:subscription_id>",

@@ -1,16 +1,37 @@
 import { useState } from "react";
 
+import { uploadProductsCsv } from "../api";
+
 export default function AdminUploadCSV() {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [uploading, setUploading] = useState(false);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
+    setError("");
+    setMessage("");
+
     if (!file) {
-      setMessage("Choose a CSV file to upload.");
+      setError("Choose a CSV file to upload.");
       return;
     }
-    setMessage(`Ready to upload ${file.name}`);
+
+    try {
+      setUploading(true);
+      const response = await uploadProductsCsv(file);
+      setMessage(
+        response?.message
+          ? `${response.message}${typeof response.created_count === "number" ? ` (${response.created_count} created)` : ""}`
+          : "Products uploaded successfully"
+      );
+      setFile(null);
+    } catch (uploadError) {
+      setError(uploadError.message);
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -27,16 +48,19 @@ export default function AdminUploadCSV() {
         <input
           type="file"
           accept=".csv"
+          key={file ? file.name : "empty"}
           className="block w-full rounded-2xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm"
           onChange={(event) => setFile(event.target.files?.[0] || null)}
         />
         <button
           type="submit"
-          className="w-full rounded-2xl bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600"
+          disabled={uploading}
+          className="w-full rounded-2xl bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Upload
+          {uploading ? "Uploading..." : "Upload"}
         </button>
-        {message ? <p className="text-sm text-slate-500">{message}</p> : null}
+        {message ? <p className="text-sm text-emerald-700">{message}</p> : null}
+        {error ? <p className="text-sm text-rose-600">{error}</p> : null}
       </form>
     </div>
   );

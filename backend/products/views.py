@@ -1,3 +1,9 @@
+import csv
+from decimal import Decimal, InvalidOperation
+from io import TextIOWrapper
+
+from django.conf import settings
+from django.db import IntegrityError
 from django.db.models import Q
 from rest_framework import permissions, status
 from rest_framework.response import Response
@@ -99,6 +105,70 @@ class ProductListCreateAPIView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ProductCSVUploadAPIView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsPlatformAdmin]
+
+    @staticmethod
+    def parse_bool(raw_value):
+        return str(raw_value).strip().lower() in {"1", "true", "yes", "y"}
+
+    def post(self, request):
+        uploaded_file = request.FILES.get("file")
+        if not uploaded_file:
+            return Response(
+                {"detail": "CSV file is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        created_count = 0
+        reader = csv.DictReader(TextIOWrapper(uploaded_file.file, encoding="utf-8-sig"))
+
+        for row in reader:
+            category_name = (row.get("category") or "").strip()
+            product_name = (row.get("name") or "").strip()
+            if not category_name or not product_name:
+                continue
+
+            category = Category.objects.filter(name=category_name).first()
+            if not category:
+                continue
+
+            try:
+                price = Decimal(str(row.get("price") or "").strip())
+                stock_quantity = int(str(row.get("stock_quantity") or "0").strip())
+                if stock_quantity < 0:
+                    continue
+            except (InvalidOperation, TypeError, ValueError):
+                continue
+
+            image_name = (row.get("image") or "").strip()
+            image_path = settings.MEDIA_ROOT / "products" / image_name if image_name else None
+            image_value = f"products/{image_name}" if image_path and image_path.exists() else None
+
+            try:
+                Product.objects.create(
+                    category=category,
+                    name=product_name,
+                    description=(row.get("description") or "").strip(),
+                    price=price,
+                    stock_quantity=stock_quantity,
+                    image=image_value,
+                    is_active=self.parse_bool(row.get("is_active", True)),
+                )
+            except IntegrityError:
+                continue
+
+            created_count += 1
+
+        return Response(
+            {
+                "message": "Products uploaded successfully",
+                "created_count": created_count,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class CategoryDetailAPIView(APIView):
