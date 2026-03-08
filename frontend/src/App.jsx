@@ -3,14 +3,9 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-r
 
 import {
   clearTokens,
-  createCategory,
-  createProduct,
   createSubscription,
-  deactivateCategory,
-  deactivateProduct,
   getAccessToken,
   getCategories,
-  getCustomers,
   getMediaUrl,
   getProducts,
   getProfile,
@@ -18,14 +13,28 @@ import {
   loginUser,
   registerUser,
   setTokens,
-  updateCategory,
-  updateProduct,
   updateSubscription,
 } from "./api";
+import AdminLayout from "./admin/AdminLayout";
+import AdminDashboard from "./admin/AdminDashboard";
+import AdminProducts from "./admin/AdminProducts";
+import AdminOrders from "./admin/AdminOrders";
+import AdminCustomers from "./admin/AdminCustomers";
+import AdminUploadCSV from "./admin/AdminUploadCSV";
 
 const today = new Date().toISOString().slice(0, 10);
 const CART_STORAGE_KEY = "milkman_cart_items";
 const ORDERS_STORAGE_KEY = "milkman_order_history";
+const LOGIN_ROLE_OPTIONS = [
+  { value: "customer", label: "Customer Login" },
+  { value: "admin", label: "Admin Login" },
+];
+const INITIAL_BILLING_FORM = {
+  full_name: "",
+  phone: "",
+  address: "",
+  payment_method: "cod",
+};
 
 function getHomeRouteForRole(role) {
   return role === "admin" ? "/admin" : "/products";
@@ -40,23 +49,11 @@ function Section({ title, children }) {
   );
 }
 
-function useDebouncedValue(value, delayMs = 350) {
-  const [debouncedValue, setDebouncedValue] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delayMs);
-    return () => clearTimeout(timer);
-  }, [value, delayMs]);
-
-  return debouncedValue;
-}
-
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const [authMode, setAuthMode] = useState("login");
+  const [loginRole, setLoginRole] = useState(LOGIN_ROLE_OPTIONS[0].value);
   const [authError, setAuthError] = useState("");
   const [profileError, setProfileError] = useState("");
   const [profile, setProfile] = useState(null);
@@ -78,13 +75,6 @@ export default function App() {
   const [subscriptionFormError, setSubscriptionFormError] = useState("");
   const [subscriptionsLoading, setSubscriptionsLoading] = useState(false);
   const [subscriptionActionLoading, setSubscriptionActionLoading] = useState(false);
-  const [adminMessage, setAdminMessage] = useState("");
-  const [adminError, setAdminError] = useState("");
-  const [adminActionLoading, setAdminActionLoading] = useState(false);
-  const [customers, setCustomers] = useState([]);
-  const [customersLoading, setCustomersLoading] = useState(false);
-  const [customersError, setCustomersError] = useState("");
-  const [customerQuery, setCustomerQuery] = useState("");
   const [subscriptionStatusFilter, setSubscriptionStatusFilter] = useState("");
   const [subscriptionOrdering, setSubscriptionOrdering] = useState("-created_at");
   const [subscriptionOffset, setSubscriptionOffset] = useState(0);
@@ -92,10 +82,9 @@ export default function App() {
   const [cartItems, setCartItems] = useState([]);
   const [productNotice, setProductNotice] = useState("");
   const [orderHistory, setOrderHistory] = useState([]);
-  const [checkoutMessage, setCheckoutMessage] = useState("");
+  const [checkoutMessage, setCheckoutMessage] = useState([]);
   const [checkoutError, setCheckoutError] = useState("");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const debouncedCustomerQuery = useDebouncedValue(customerQuery, 350);
   const subscriptionPageSize = 10;
 
   const [newSub, setNewSub] = useState({
@@ -128,12 +117,7 @@ export default function App() {
     phone: "",
     city: "",
   });
-  const [billingForm, setBillingForm] = useState({
-    full_name: "",
-    phone: "",
-    address: "",
-    payment_method: "cod",
-  });
+  const [billingForm, setBillingForm] = useState(() => ({ ...INITIAL_BILLING_FORM }));
 
   useEffect(() => {
     loadCategories();
@@ -148,12 +132,6 @@ export default function App() {
       loadSubscriptions();
     }
   }, [subscriptionStatusFilter, subscriptionOrdering, subscriptionOffset]);
-
-  useEffect(() => {
-    if (profile?.role === "admin") {
-      loadCustomers(debouncedCustomerQuery);
-    }
-  }, [debouncedCustomerQuery]);
 
   useEffect(() => {
     setSubscriptionOffset(0);
@@ -280,12 +258,6 @@ export default function App() {
       const profileData = await getProfile();
       setProfile(profileData);
       await loadSubscriptions();
-      if (profileData.role === "admin") {
-        await loadCustomers(debouncedCustomerQuery);
-      } else {
-        setCustomers([]);
-        setCustomersError("");
-      }
       return profileData;
     } catch (error) {
       setProfileError(error.message);
@@ -391,171 +363,6 @@ export default function App() {
     }
   }
 
-  async function handleCreateCategory(event) {
-    event.preventDefault();
-    try {
-      setAdminActionLoading(true);
-      setAdminError("");
-      setAdminMessage("");
-      setProductNotice("");
-      await createCategory(newCategory);
-      setNewCategory({ name: "", description: "", is_active: true });
-      await loadCategories();
-      setAdminMessage("Category created.");
-      setProductNotice("Category created successfully.");
-      navigate("/products");
-    } catch (error) {
-      setAdminError(error.message);
-    } finally {
-      setAdminActionLoading(false);
-    }
-  }
-
-  async function handleCreateProduct(event) {
-    event.preventDefault();
-    try {
-      setAdminActionLoading(true);
-      setAdminError("");
-      setAdminMessage("");
-      setProductNotice("");
-      await createProduct({ ...newProduct, category: Number(newProduct.category) });
-      setNewProduct({
-        category: categories.length ? String(categories[0].id) : "",
-        name: "",
-        description: "",
-        price: "",
-        stock_quantity: 1,
-        is_active: true,
-        image: null,
-      });
-      await loadProducts();
-      setAdminMessage("Product created.");
-      setProductNotice("Product added successfully.");
-      navigate("/products");
-    } catch (error) {
-      setAdminError(error.message);
-    } finally {
-      setAdminActionLoading(false);
-    }
-  }
-
-  async function handleDeactivateCategory(categoryId) {
-    try {
-      setAdminActionLoading(true);
-      setAdminError("");
-      setAdminMessage("");
-      await deactivateCategory(categoryId);
-      await loadCategories();
-      await loadProducts();
-      setAdminMessage("Category deactivated.");
-    } catch (error) {
-      setAdminError(error.message);
-    } finally {
-      setAdminActionLoading(false);
-    }
-  }
-
-  async function handleDeactivateProduct(productId) {
-    try {
-      setAdminActionLoading(true);
-      setAdminError("");
-      setAdminMessage("");
-      await deactivateProduct(productId);
-      await loadProducts();
-      setAdminMessage("Product deactivated.");
-    } catch (error) {
-      setAdminError(error.message);
-    } finally {
-      setAdminActionLoading(false);
-    }
-  }
-
-  async function handleRenameCategory(category) {
-    const nextName = window.prompt("Enter new category name", category.name);
-    if (!nextName || nextName.trim() === category.name) {
-      return;
-    }
-    try {
-      setAdminActionLoading(true);
-      setAdminError("");
-      setAdminMessage("");
-      await updateCategory(category.id, { name: nextName.trim() });
-      await loadCategories();
-      setAdminMessage("Category updated.");
-    } catch (error) {
-      setAdminError(error.message);
-    } finally {
-      setAdminActionLoading(false);
-    }
-  }
-
-  async function handleUpdateProductPrice(product) {
-    const nextPrice = window.prompt("Enter new product price", product.price);
-    if (!nextPrice || nextPrice.trim() === String(product.price)) {
-      return;
-    }
-    try {
-      setAdminActionLoading(true);
-      setAdminError("");
-      setAdminMessage("");
-      await updateProduct(product.id, { price: nextPrice.trim() });
-      await loadProducts();
-      setAdminMessage("Product updated.");
-    } catch (error) {
-      setAdminError(error.message);
-    } finally {
-      setAdminActionLoading(false);
-    }
-  }
-
-  async function handleEditProduct(product) {
-    const nextName = window.prompt("Product name", product.name);
-    if (!nextName || !nextName.trim()) {
-      return;
-    }
-    const nextPrice = window.prompt("Product price", String(product.price));
-    if (!nextPrice || Number(nextPrice) < 0) {
-      return;
-    }
-    const nextStock = window.prompt("Stock quantity", String(product.stock_quantity || 0));
-    if (!nextStock || Number(nextStock) < 0) {
-      return;
-    }
-    const nextDescription = window.prompt(
-      "Description",
-      product.description || ""
-    );
-
-    try {
-      setAdminActionLoading(true);
-      setAdminError("");
-      setAdminMessage("");
-      await updateProduct(product.id, {
-        name: nextName.trim(),
-        price: String(nextPrice).trim(),
-        stock_quantity: Number(nextStock),
-        description: (nextDescription || "").trim(),
-      });
-      await loadProducts();
-      setAdminMessage("Product updated.");
-    } catch (error) {
-      setAdminError(error.message);
-    } finally {
-      setAdminActionLoading(false);
-    }
-  }
-
-  async function loadCustomers(queryText = debouncedCustomerQuery) {
-    try {
-      setCustomersLoading(true);
-      setCustomersError("");
-      setCustomers(await getCustomers({ q: queryText, limit: 100 }));
-    } catch (error) {
-      setCustomersError(error.message);
-    } finally {
-      setCustomersLoading(false);
-    }
-  }
 
   function handleAddToCart(product) {
     setCartItems((prev) => {
@@ -589,19 +396,19 @@ export default function App() {
 
   function handlePlaceOrder(event) {
     event.preventDefault();
+    setCheckoutMessage([]);
     if (!billingForm.full_name || !billingForm.phone || !billingForm.address) {
       setCheckoutError("Please fill full name, phone, and address.");
-      setCheckoutMessage("");
       return;
     }
     if (cartItems.length === 0) {
       setCheckoutError("Your cart is empty.");
-      setCheckoutMessage("");
       return;
     }
 
     setCheckoutLoading(true);
     setCheckoutError("");
+    setCheckoutMessage([]);
     const totalAmount = cartItems.reduce(
       (sum, item) => sum + Number(item.product.price) * item.quantity,
       0
@@ -618,8 +425,11 @@ export default function App() {
 
     setOrderHistory((prev) => [order, ...prev].slice(0, 10));
     setCartItems([]);
-    setCheckoutMessage(`Order ${order.id} placed successfully.`);
-    setBillingForm((prev) => ({ ...prev, address: "" }));
+    setCheckoutMessage([
+      "Thank you for your purchase!",
+      `Order ${order.id} placed successfully.`,
+    ]);
+    setBillingForm({ ...INITIAL_BILLING_FORM });
     setCheckoutLoading(false);
   }
 
@@ -638,9 +448,13 @@ export default function App() {
   }
 
   function AuthPanel() {
-    return (
-      <Section title="Authentication">
-        {profile ? (
+    const currentRoleLabel =
+      LOGIN_ROLE_OPTIONS.find((option) => option.value === loginRole)?.label ??
+      LOGIN_ROLE_OPTIONS[0].label;
+
+    if (profile) {
+      return (
+        <Section title="Account">
           <div className="space-y-2 text-sm">
             <p>
               Signed in as <span className="font-semibold">{profile.username}</span> ({profile.role})
@@ -655,141 +469,190 @@ export default function App() {
               Logout
             </button>
           </div>
-        ) : (
-          <div>
-            <div className="mb-4 flex gap-2">
+        </Section>
+      );
+    }
+
+    return (
+      <div className="rounded-3xl bg-white px-8 py-10 shadow-[0_25px_60px_rgba(15,23,42,0.08)]">
+        <div className="text-center">
+          <h1 className="text-3xl font-semibold text-slate-900">Welcome to Milkman</h1>
+          <p className="mt-2 text-sm text-slate-500">Fresh dairy products delivered daily.</p>
+        </div>
+        <div className="mt-6 flex items-center gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 text-[10px] font-semibold uppercase tracking-[0.25em] text-slate-500">
+          {LOGIN_ROLE_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setLoginRole(option.value)}
+              className={`flex-1 rounded-2xl px-3 py-2 transition ${
+                loginRole === option.value
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500"
+              }`}
+              aria-pressed={loginRole === option.value}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-center text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">
+          Viewing {currentRoleLabel}
+        </p>
+        <div className="mt-6 flex items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAuthMode("login")}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              authMode === "login"
+                ? "bg-brand-700 text-white shadow-lg"
+                : "border border-slate-200 bg-white text-slate-500"
+            }`}
+          >
+            Login
+          </button>
+          <button
+            type="button"
+            onClick={() => setAuthMode("register")}
+            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+              authMode === "register"
+                ? "bg-brand-700 text-white shadow-lg"
+                : "border border-slate-200 bg-white text-slate-500"
+            }`}
+          >
+            Register
+          </button>
+        </div>
+        <div className="mt-5">
+          {authMode === "login" ? (
+            <form className="space-y-3" onSubmit={handleLogin}>
+              <input
+                className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                placeholder="Username"
+                value={loginForm.username}
+                onChange={(event) =>
+                  setLoginForm((prev) => ({ ...prev, username: event.target.value }))
+                }
+                required
+              />
+              <input
+                className="w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                type="password"
+                placeholder="Password"
+                value={loginForm.password}
+                onChange={(event) =>
+                  setLoginForm((prev) => ({ ...prev, password: event.target.value }))
+                }
+                required
+              />
               <button
-                type="button"
-                onClick={() => setAuthMode("login")}
-                className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                  authMode === "login" ? "bg-brand-700 text-white" : "bg-slate-100 text-slate-700"
-                }`}
+                disabled={authLoading}
+                className="w-full rounded-2xl bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Login
+                {authLoading ? "Signing in..." : "Sign in"}
               </button>
+            </form>
+          ) : (
+            <form className="mt-1 grid gap-3 sm:grid-cols-2" onSubmit={handleRegister}>
+              <input
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                placeholder="Username"
+                value={registerForm.username}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({ ...prev, username: event.target.value }))
+                }
+                required
+              />
+              <input
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                type="email"
+                placeholder="Email"
+                value={registerForm.email}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({ ...prev, email: event.target.value }))
+                }
+                required
+              />
+              <input
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                placeholder="First Name"
+                value={registerForm.first_name}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({ ...prev, first_name: event.target.value }))
+                }
+              />
+              <input
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                placeholder="Last Name"
+                value={registerForm.last_name}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({ ...prev, last_name: event.target.value }))
+                }
+              />
+              <input
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                placeholder="Phone"
+                value={registerForm.phone}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({ ...prev, phone: event.target.value }))
+                }
+              />
+              <input
+                className="rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                placeholder="City"
+                value={registerForm.city}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({ ...prev, city: event.target.value }))
+                }
+              />
+              <input
+                className="sm:col-span-2 rounded-2xl border border-slate-200 px-4 py-2 text-sm shadow-sm focus:border-brand-600 focus:outline-none"
+                type="password"
+                placeholder="Password"
+                value={registerForm.password}
+                onChange={(event) =>
+                  setRegisterForm((prev) => ({ ...prev, password: event.target.value }))
+                }
+                required
+              />
               <button
-                type="button"
-                onClick={() => setAuthMode("register")}
-                className={`rounded-lg px-3 py-2 text-sm font-medium ${
-                  authMode === "register"
-                    ? "bg-brand-700 text-white"
-                    : "bg-slate-100 text-slate-700"
-                }`}
+                disabled={authLoading}
+                className="sm:col-span-2 rounded-2xl bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Register
+                {authLoading ? "Creating account..." : "Create account"}
               </button>
-            </div>
-            {authMode === "login" ? (
-              <form className="grid gap-3" onSubmit={handleLogin}>
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Username"
-                  value={loginForm.username}
-                  onChange={(event) =>
-                    setLoginForm((prev) => ({ ...prev, username: event.target.value }))
-                  }
-                  required
-                />
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  type="password"
-                  placeholder="Password"
-                  value={loginForm.password}
-                  onChange={(event) =>
-                    setLoginForm((prev) => ({ ...prev, password: event.target.value }))
-                  }
-                  required
-                />
-                <button
-                  disabled={authLoading}
-                  className="rounded-lg bg-brand-700 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {authLoading ? "Signing in..." : "Sign in"}
-                </button>
-              </form>
-            ) : (
-              <form className="grid gap-3 sm:grid-cols-2" onSubmit={handleRegister}>
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Username"
-                  value={registerForm.username}
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, username: event.target.value }))
-                  }
-                  required
-                />
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  type="email"
-                  placeholder="Email"
-                  value={registerForm.email}
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, email: event.target.value }))
-                  }
-                  required
-                />
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="First Name"
-                  value={registerForm.first_name}
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, first_name: event.target.value }))
-                  }
-                />
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Last Name"
-                  value={registerForm.last_name}
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, last_name: event.target.value }))
-                  }
-                />
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="Phone"
-                  value={registerForm.phone}
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, phone: event.target.value }))
-                  }
-                />
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  placeholder="City"
-                  value={registerForm.city}
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, city: event.target.value }))
-                  }
-                />
-                <input
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm sm:col-span-2"
-                  type="password"
-                  placeholder="Password"
-                  value={registerForm.password}
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, password: event.target.value }))
-                  }
-                  required
-                />
-                <button
-                  disabled={authLoading}
-                  className="rounded-lg bg-brand-700 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50 sm:col-span-2"
-                >
-                  {authLoading ? "Creating account..." : "Create account"}
-                </button>
-              </form>
-            )}
-            {authError ? <p className="mt-3 text-sm text-red-600">{authError}</p> : null}
-            {profileError ? <p className="mt-2 text-sm text-amber-700">{profileError}</p> : null}
-          </div>
-        )}
-      </Section>
+            </form>
+          )}
+          {authError ? <p className="mt-3 text-sm text-rose-600">{authError}</p> : null}
+          {profileError ? <p className="mt-2 text-sm text-amber-700">{profileError}</p> : null}
+        </div>
+      </div>
     );
   }
 
   function ProductPanel() {
+    const welcomeName =
+      profile?.first_name?.trim() || profile?.username || "Milkman friend";
+
     return (
       <Section title="Product Catalog">
         {productNotice ? <p className="mb-3 text-sm text-emerald-700">{productNotice}</p> : null}
+        <div className="mb-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm text-slate-500">
+              Hello {welcomeName} 👋 Welcome back to Milkman
+            </p>
+            <p className="text-xs text-slate-400">{searchedProducts.length} items available</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/billing")}
+            disabled={!cartCount}
+            className="rounded-2xl bg-brand-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Go to Billing ({cartCount})
+          </button>
+        </div>
         <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
           <label className="grid gap-1 text-sm text-slate-600" htmlFor="category-filter">
             <span>Category</span>
@@ -827,65 +690,76 @@ export default function App() {
               value={productOrdering}
               onChange={(event) => setProductOrdering(event.target.value)}
             >
-              <option value="name">Name: A-Z</option>
-              <option value="-name">Name: Z-A</option>
               <option value="price">Price: Low to High</option>
               <option value="-price">Price: High to Low</option>
+              <option value="name">Name: A-Z</option>
+              <option value="-name">Name: Z-A</option>
             </select>
           </label>
         </div>
         {categoriesError ? <p className="mt-3 text-sm text-red-600">{categoriesError}</p> : null}
         {productsError ? <p className="mt-3 text-sm text-red-600">{productsError}</p> : null}
-        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-base font-semibold text-slate-800">Available Milk Products</h3>
-            <p className="text-xs text-slate-500">{searchedProducts.length} items</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => navigate("/billing")}
-            disabled={!cartItems.length}
-            className="rounded-md bg-brand-700 px-3 py-1 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {cartItems.length ? "Go to Billing" : "Cart empty"}
-          </button>
-        </div>
-        <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {productsLoading || categoriesLoading ? (
             <p className="text-sm text-slate-600">Loading products...</p>
           ) : searchedProducts.length === 0 ? (
             <p className="text-sm text-slate-600">No products available for this filter.</p>
           ) : (
-            searchedProducts.map((product) => (
-              <div
-                key={product.id}
-                className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-              >
-                {product.image ? (
-                  <img
-                    src={getMediaUrl(product.image)}
-                    alt={product.name}
-                    className="h-40 w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-40 w-full items-center justify-center bg-slate-100 text-xs text-slate-500">
-                    No image
+            searchedProducts.map((product) => {
+              const cartItem = cartItems.find((item) => item.product.id === product.id);
+              const quantity = cartItem?.quantity || 0;
+              return (
+                <div
+                  key={product.id}
+                  className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                >
+                  <div className="relative h-48 w-full overflow-hidden bg-slate-100">
+                    {product.image ? (
+                      <img
+                        src={getMediaUrl(product.image)}
+                        alt={product.name}
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-xs uppercase text-slate-400">
+                        No image
+                      </div>
+                    )}
                   </div>
-                )}
-                <div className="space-y-2 p-4">
-                  <p className="line-clamp-1 font-semibold">{product.name}</p>
-                  <p className="text-sm text-slate-600">{product.category_name}</p>
-                  <p className="text-base font-semibold text-brand-700">Rs {product.price}</p>
-                  <button
-                    type="button"
-                    onClick={() => handleAddToCart(product)}
-                    className="w-full rounded-lg bg-brand-700 px-3 py-2 text-sm text-white"
-                  >
-                    Add to cart
-                  </button>
+                  <div className="space-y-3 p-4">
+                    <div className="space-y-1">
+                      <p className="text-base font-semibold text-slate-900">{product.name}</p>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">
+                        {product.category_name}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <p className="text-lg font-semibold text-brand-700">Rs {product.price}</p>
+                      <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-semibold text-slate-700">
+                        <button
+                          type="button"
+                          disabled={quantity === 0}
+                          onClick={() =>
+                            handleUpdateCartQuantity(product.id, quantity - 1)
+                          }
+                          className="rounded-full px-2 py-1 text-lg text-slate-500 transition hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          -
+                        </button>
+                        <span className="w-6 text-center tabular-nums">{quantity}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleAddToCart(product)}
+                          className="rounded-full px-2 py-1 text-lg text-slate-500 transition hover:text-slate-900"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </Section>
@@ -897,6 +771,9 @@ export default function App() {
       (sum, item) => sum + Number(item.product.price) * item.quantity,
       0
     );
+    const customerName = billingForm.full_name || "Not provided";
+    const customerPhone = billingForm.phone || "Not provided";
+    const customerAddress = billingForm.address || "Not provided";
 
     return (
       <Section title="Billing & Cart">
@@ -910,32 +787,50 @@ export default function App() {
                   {cartItems.map((item) => (
                     <div
                       key={item.product.id}
-                      className="grid gap-3 rounded-xl border border-slate-200 p-3 md:grid-cols-[1fr_auto_auto]"
+                      className="flex flex-col gap-3 rounded-xl border border-slate-200 p-3 shadow-sm transition md:flex-row md:items-center"
                     >
-                      <div>
-                        <p className="font-semibold">{item.product.name}</p>
-                        <p className="text-sm text-slate-600">Rs {item.product.price} each</p>
-                        <p className="text-sm text-slate-600">
+                      <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-2xl bg-slate-100">
+                        {item.product.image ? (
+                          <img
+                            src={getMediaUrl(item.product.image)}
+                            alt={item.product.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs uppercase text-slate-400">
+                            No image
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 space-y-1">
+                        <p className="text-sm font-semibold text-slate-900">{item.product.name}</p>
+                        <p className="text-xs text-slate-600">Rs {item.product.price} each</p>
+                        <p className="text-xs text-slate-600">
                           Line total: Rs{" "}
                           {(Number(item.product.price) * item.quantity).toFixed(2)}
                         </p>
                       </div>
-                      <input
-                        className="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        type="number"
-                        min="1"
-                        value={item.quantity}
-                        onChange={(event) =>
-                          handleUpdateCartQuantity(
-                            item.product.id,
-                            Number(event.target.value || 1)
-                          )
-                        }
-                      />
+                      <div className="flex flex-col items-end gap-2">
+                        <label className="text-[10px] uppercase tracking-[0.4em] text-slate-400">
+                          Quantity
+                        </label>
+                        <input
+                          className="w-20 rounded-md border border-slate-300 px-2 py-1 text-sm text-center"
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(event) =>
+                            handleUpdateCartQuantity(
+                              item.product.id,
+                              Number(event.target.value || 1)
+                            )
+                          }
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() => handleRemoveFromCart(item.product.id)}
-                        className="rounded-md bg-rose-100 px-3 py-1 text-xs text-rose-800"
+                        className="rounded-md bg-rose-100 px-3 py-1 text-xs text-rose-800 md:mt-0"
                       >
                         Remove
                       </button>
@@ -1000,7 +895,31 @@ export default function App() {
               </button>
             </form>
             {checkoutError ? <p className="mt-2 text-sm text-red-600">{checkoutError}</p> : null}
-            {checkoutMessage ? <p className="mt-2 text-sm text-emerald-700">{checkoutMessage}</p> : null}
+            {checkoutMessage.length ? (
+              <div className="mt-3 space-y-1 text-sm text-emerald-700">
+                {checkoutMessage.map((line, index) => (
+                  <p key={`checkout-${index}`}>{line}</p>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-4 space-y-1 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <p>
+                <span className="font-semibold text-slate-900">Customer Name:</span> {customerName}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">Phone Number:</span> {customerPhone}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">Delivery Address:</span> {customerAddress}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/products")}
+              className="mt-4 w-full rounded-2xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-500"
+            >
+              Back to Products
+            </button>
           </div>
         </div>
 
@@ -1011,12 +930,18 @@ export default function App() {
           ) : (
             <div className="mt-3 grid gap-3">
               {orderHistory.map((order) => (
-                <div key={order.id} className="rounded-lg border border-slate-200 p-3">
-                  <p className="text-sm font-semibold">{order.id}</p>
-                  <p className="text-xs text-slate-500">
-                    {new Date(order.placed_at).toLocaleString()} | {order.customer.payment_method.toUpperCase()}
+                <div key={order.id} className="rounded-xl border border-slate-200 p-3 shadow-sm">
+                  <div className="mb-2 flex flex-col gap-1 text-xs uppercase tracking-[0.2em] text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+                    <span>{order.id}</span>
+                    <span>{new Date(order.placed_at).toLocaleString()}</span>
+                  </div>
+                  <p className="text-sm text-slate-700">
+                    Customer: {order.customer.full_name || "N/A"}
                   </p>
                   <p className="text-sm text-slate-700">Total: Rs {Number(order.total).toFixed(2)}</p>
+                  <p className="text-sm text-slate-700">
+                    Payment: {order.customer.payment_method?.toUpperCase() || "N/A"}
+                  </p>
                 </div>
               ))}
             </div>
@@ -1209,278 +1134,6 @@ export default function App() {
     );
   }
 
-  function AdminPanel() {
-    return (
-      <Section title="Admin Management">
-        <p className="text-sm text-slate-600">Create categories and products from the dashboard.</p>
-        <div className="mt-4 grid gap-6 lg:grid-cols-2">
-          <form className="grid gap-3 rounded-xl border border-slate-200 p-4" onSubmit={handleCreateCategory}>
-            <h3 className="font-semibold">New Category</h3>
-            <input
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Category name"
-              value={newCategory.name}
-              onChange={(event) => setNewCategory((prev) => ({ ...prev, name: event.target.value }))}
-              required
-            />
-            <textarea
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Description"
-              value={newCategory.description}
-              onChange={(event) =>
-                setNewCategory((prev) => ({ ...prev, description: event.target.value }))
-              }
-              rows={3}
-            />
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={newCategory.is_active}
-                onChange={(event) =>
-                  setNewCategory((prev) => ({ ...prev, is_active: event.target.checked }))
-                }
-              />
-              Active
-            </label>
-            <button
-              disabled={adminActionLoading}
-              className="rounded-lg bg-brand-700 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {adminActionLoading ? "Creating..." : "Create Category"}
-            </button>
-          </form>
-
-          <form className="grid gap-3 rounded-xl border border-slate-200 p-4" onSubmit={handleCreateProduct}>
-            <h3 className="font-semibold">New Product</h3>
-            <select
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={newProduct.category}
-              onChange={(event) =>
-                setNewProduct((prev) => ({ ...prev, category: event.target.value }))
-              }
-              required
-            >
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-            <input
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Product name"
-              value={newProduct.name}
-              onChange={(event) => setNewProduct((prev) => ({ ...prev, name: event.target.value }))}
-              required
-            />
-            <textarea
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              placeholder="Description"
-              value={newProduct.description}
-              onChange={(event) =>
-                setNewProduct((prev) => ({ ...prev, description: event.target.value }))
-              }
-              rows={3}
-            />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Price"
-                type="number"
-                min="0"
-                step="0.01"
-                value={newProduct.price}
-                onChange={(event) => setNewProduct((prev) => ({ ...prev, price: event.target.value }))}
-                required
-              />
-              <input
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                placeholder="Stock quantity"
-                type="number"
-                min="0"
-                value={newProduct.stock_quantity}
-                onChange={(event) =>
-                  setNewProduct((prev) => ({ ...prev, stock_quantity: event.target.value }))
-                }
-                required
-              />
-            </div>
-            <label className="text-sm text-slate-700">
-              Product image
-              <input
-                className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-1"
-                type="file"
-                accept="image/*"
-                onChange={(event) =>
-                  setNewProduct((prev) => ({ ...prev, image: event.target.files?.[0] || null }))
-                }
-              />
-            </label>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={newProduct.is_active}
-                onChange={(event) =>
-                  setNewProduct((prev) => ({ ...prev, is_active: event.target.checked }))
-                }
-              />
-              Active
-            </label>
-            <button
-              disabled={!categories.length || adminActionLoading}
-              className="rounded-lg bg-brand-700 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {adminActionLoading ? "Creating..." : "Create Product"}
-            </button>
-          </form>
-        </div>
-        {adminMessage ? <p className="mt-4 text-sm text-emerald-700">{adminMessage}</p> : null}
-        {adminError ? <p className="mt-2 text-sm text-red-600">{adminError}</p> : null}
-
-        <div className="mt-6 rounded-xl border border-slate-200 p-4">
-          <h3 className="font-semibold">Manage Categories</h3>
-          <div className="mt-3 grid gap-2">
-            {categoriesLoading ? (
-              <p className="text-sm text-slate-600">Loading categories...</p>
-            ) : categories.length === 0 ? (
-              <p className="text-sm text-slate-600">No active categories.</p>
-            ) : (
-              categories.map((category) => (
-                <div
-                  key={category.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-2"
-                >
-                  <p className="text-sm font-medium">{category.name}</p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleRenameCategory(category)}
-                      disabled={adminActionLoading}
-                      className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-800 disabled:opacity-50"
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeactivateCategory(category.id)}
-                      disabled={adminActionLoading}
-                      className="rounded-md bg-rose-100 px-2 py-1 text-xs text-rose-800 disabled:opacity-50"
-                    >
-                      Deactivate
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-xl border border-slate-200 p-4">
-          <h3 className="font-semibold">Manage Products</h3>
-          <div className="mt-3 grid gap-2">
-            {productsLoading ? (
-              <p className="text-sm text-slate-600">Loading products...</p>
-            ) : products.length === 0 ? (
-              <p className="text-sm text-slate-600">No active products.</p>
-            ) : (
-              products.map((product) => (
-                <div
-                  key={product.id}
-                  className="flex flex-col gap-2 rounded-lg border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <p className="text-sm font-medium">
-                    {product.name} | Rs {product.price}
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleEditProduct(product)}
-                      disabled={adminActionLoading}
-                      className="rounded-md bg-indigo-100 px-2 py-1 text-xs text-indigo-800 disabled:opacity-50"
-                    >
-                      Edit Details
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleUpdateProductPrice(product)}
-                      disabled={adminActionLoading}
-                      className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-800 disabled:opacity-50"
-                    >
-                      Update Price
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeactivateProduct(product.id)}
-                      disabled={adminActionLoading}
-                      className="rounded-md bg-rose-100 px-2 py-1 text-xs text-rose-800 disabled:opacity-50"
-                    >
-                      Deactivate
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="mt-6 rounded-xl border border-slate-200 p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-semibold">Customers</h3>
-            <div className="flex items-center gap-2">
-              <input
-                className="rounded-md border border-slate-300 px-2 py-1 text-xs"
-                placeholder="Search customers"
-                value={customerQuery}
-                onChange={(event) => setCustomerQuery(event.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => loadCustomers(customerQuery)}
-                disabled={customersLoading}
-                className="rounded-md bg-slate-100 px-3 py-1 text-xs text-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {customersLoading ? "Refreshing..." : "Refresh"}
-              </button>
-            </div>
-          </div>
-          {customersError ? <p className="text-sm text-red-600">{customersError}</p> : null}
-          {customersLoading ? (
-            <p className="text-sm text-slate-600">Loading customers...</p>
-          ) : customers.length === 0 ? (
-            <p className="text-sm text-slate-600">No customers found.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
-                <thead className="text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-2 py-2">Username</th>
-                    <th className="px-2 py-2">Email</th>
-                    <th className="px-2 py-2">City</th>
-                    <th className="px-2 py-2">Phone</th>
-                    <th className="px-2 py-2">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {customers.map((customer) => (
-                    <tr key={customer.id} className="border-t border-slate-100">
-                      <td className="px-2 py-2">{customer.username}</td>
-                      <td className="px-2 py-2">{customer.email || "N/A"}</td>
-                      <td className="px-2 py-2">{customer.city || "N/A"}</td>
-                      <td className="px-2 py-2">{customer.phone || "N/A"}</td>
-                      <td className="px-2 py-2">
-                        {customer.is_active ? "Active" : "Inactive"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </Section>
-    );
-  }
-
   function TopNav() {
     return (
       <nav className="mb-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -1550,7 +1203,11 @@ export default function App() {
               ) : isAuthenticated ? (
                 <Navigate to={defaultAuthenticatedRoute} replace />
               ) : (
-                <div className="mx-auto max-w-2xl">{AuthPanel()}</div>
+                <div className="flex min-h-[70vh] items-center justify-center px-4 sm:px-0">
+                  <div className="w-full max-w-md">
+                    {AuthPanel()}
+                  </div>
+                </div>
               )
             }
           />
@@ -1600,10 +1257,17 @@ export default function App() {
               ) : !isAdmin ? (
                 <Navigate to="/products" replace />
               ) : (
-                <div className="grid gap-6">{AdminPanel()}</div>
+                <AdminLayout logout={handleLogout} />
               )
             }
-          />
+          >
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="products" element={<AdminProducts />} />
+            <Route path="orders" element={<AdminOrders />} />
+            <Route path="customers" element={<AdminCustomers />} />
+            <Route path="upload-csv" element={<AdminUploadCSV />} />
+          </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </section>
