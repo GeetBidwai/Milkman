@@ -24,20 +24,26 @@ import AdminCustomers from "./admin/AdminCustomers";
 import AdminPlans from "./admin/AdminPlans";
 import AdminUploadCSV from "./admin/AdminUploadCSV";
 import AdminSubscriptions from "./admin/AdminSubscriptions";
+import { getStoredOrders, saveStoredOrders } from "./orders";
 import MySubscriptions from "./pages/MySubscriptions";
 
 const today = new Date().toISOString().slice(0, 10);
 const CART_STORAGE_KEY = "milkman_cart_items";
-const ORDERS_STORAGE_KEY = "milkman_order_history";
 const LOGIN_ROLE_OPTIONS = [
   { value: "customer", label: "Customer Login" },
   { value: "admin", label: "Admin Login" },
 ];
+const MERCHANT_UPI_ID = "milkman@upi";
 const INITIAL_BILLING_FORM = {
   full_name: "",
   phone: "",
   address: "",
   payment_method: "cod",
+  upi_id: "",
+  card_name: "",
+  card_number: "",
+  card_expiry: "",
+  card_cvv: "",
 };
 const INITIAL_SUBSCRIPTION_MODAL_FORM = {
   plan: "",
@@ -95,9 +101,16 @@ export default function App() {
   const [subscriptionModalForm, setSubscriptionModalForm] = useState(
     INITIAL_SUBSCRIPTION_MODAL_FORM
   );
-  const [cartItems, setCartItems] = useState([]);
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
+      return savedCart ? JSON.parse(savedCart) : [];
+    } catch {
+      return [];
+    }
+  });
   const [productNotice, setProductNotice] = useState("");
-  const [orderHistory, setOrderHistory] = useState([]);
+  const [orderHistory, setOrderHistory] = useState(() => getStoredOrders());
   const [checkoutMessage, setCheckoutMessage] = useState([]);
   const [checkoutError, setCheckoutError] = useState("");
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -190,27 +203,11 @@ export default function App() {
   }, [categories, newProduct.category]);
 
   useEffect(() => {
-    try {
-      const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-      if (savedCart) {
-        setCartItems(JSON.parse(savedCart));
-      }
-      const savedOrders = localStorage.getItem(ORDERS_STORAGE_KEY);
-      if (savedOrders) {
-        setOrderHistory(JSON.parse(savedOrders));
-      }
-    } catch {
-      setCartItems([]);
-      setOrderHistory([]);
-    }
-  }, []);
-
-  useEffect(() => {
     localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems));
   }, [cartItems]);
 
   useEffect(() => {
-    localStorage.setItem(ORDERS_STORAGE_KEY, JSON.stringify(orderHistory));
+    saveStoredOrders(orderHistory);
   }, [orderHistory]);
 
   const filteredProducts =
@@ -421,6 +418,21 @@ export default function App() {
       setCheckoutError("Please fill full name, phone, and address.");
       return;
     }
+    if (billingForm.payment_method === "upi" && !billingForm.upi_id.trim()) {
+      setCheckoutError("Please enter the UPI ID you will pay from.");
+      return;
+    }
+    if (billingForm.payment_method === "card") {
+      if (
+        !billingForm.card_name.trim() ||
+        !billingForm.card_number.trim() ||
+        !billingForm.card_expiry.trim() ||
+        !billingForm.card_cvv.trim()
+      ) {
+        setCheckoutError("Please fill all required card details.");
+        return;
+      }
+    }
     if (cartItems.length === 0) {
       setCheckoutError("Your cart is empty.");
       return;
@@ -437,7 +449,18 @@ export default function App() {
     const order = {
       id: `ORD-${Date.now()}`,
       placed_at: new Date().toISOString(),
-      customer: { ...billingForm },
+      customer: {
+        full_name: billingForm.full_name,
+        phone: billingForm.phone,
+        address: billingForm.address,
+        payment_method: billingForm.payment_method,
+        payment_summary:
+          billingForm.payment_method === "upi"
+            ? `Paid via UPI (${billingForm.upi_id.trim()})`
+            : billingForm.payment_method === "card"
+              ? `Card ending ${billingForm.card_number.replace(/\s+/g, "").slice(-4)}`
+              : "Cash on Delivery",
+      },
       items: cartItems,
       total: Number(totalAmount.toFixed(2)),
       status: "confirmed",
@@ -892,6 +915,12 @@ export default function App() {
     const customerName = billingForm.full_name || "Not provided";
     const customerPhone = billingForm.phone || "Not provided";
     const customerAddress = billingForm.address || "Not provided";
+    const customerPayment =
+      billingForm.payment_method === "upi"
+        ? `UPI (${billingForm.upi_id || "Not provided"})`
+        : billingForm.payment_method === "card"
+          ? `Card (${billingForm.card_number ? `ending ${billingForm.card_number.replace(/\s+/g, "").slice(-4)}` : "details pending"})`
+          : "Cash on Delivery";
 
     return (
       <Section title="Billing & Cart">
@@ -1005,6 +1034,88 @@ export default function App() {
                 <option value="upi">UPI</option>
                 <option value="card">Card</option>
               </select>
+              {billingForm.payment_method === "upi" ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                  <p className="font-semibold">Pay to this UPI ID</p>
+                  <p className="mt-1 font-mono text-base">{MERCHANT_UPI_ID}</p>
+                  <label className="mt-3 grid gap-1 text-sm text-slate-700">
+                    <span>Your UPI ID</span>
+                    <input
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="yourname@bank"
+                      value={billingForm.upi_id}
+                      onChange={(event) =>
+                        setBillingForm((prev) => ({ ...prev, upi_id: event.target.value }))
+                      }
+                      required
+                    />
+                  </label>
+                </div>
+              ) : null}
+              {billingForm.payment_method === "card" ? (
+                <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <input
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Name on card"
+                    value={billingForm.card_name}
+                    onChange={(event) =>
+                      setBillingForm((prev) => ({ ...prev, card_name: event.target.value }))
+                    }
+                    required
+                  />
+                  <input
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    placeholder="Card number"
+                    inputMode="numeric"
+                    maxLength={19}
+                    value={billingForm.card_number}
+                    onChange={(event) =>
+                      setBillingForm((prev) => ({
+                        ...prev,
+                        card_number: event.target.value
+                          .replace(/[^\d]/g, "")
+                          .slice(0, 16)
+                          .replace(/(\d{4})(?=\d)/g, "$1 "),
+                      }))
+                    }
+                    required
+                  />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="MM/YY"
+                      maxLength={5}
+                      value={billingForm.card_expiry}
+                      onChange={(event) =>
+                        setBillingForm((prev) => ({
+                          ...prev,
+                          card_expiry: event.target.value
+                            .replace(/[^\d]/g, "")
+                            .slice(0, 4)
+                            .replace(/(\d{2})(\d{0,2})/, (_, mm, yy) =>
+                              yy ? `${mm}/${yy}` : mm
+                            ),
+                        }))
+                      }
+                      required
+                    />
+                    <input
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="CVV"
+                      inputMode="numeric"
+                      maxLength={4}
+                      value={billingForm.card_cvv}
+                      onChange={(event) =>
+                        setBillingForm((prev) => ({
+                          ...prev,
+                          card_cvv: event.target.value.replace(/[^\d]/g, "").slice(0, 4),
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+                </div>
+              ) : null}
               <button
                 disabled={checkoutLoading || cartItems.length === 0}
                 className="rounded-lg bg-brand-700 px-4 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
@@ -1029,6 +1140,9 @@ export default function App() {
               </p>
               <p>
                 <span className="font-semibold text-slate-900">Delivery Address:</span> {customerAddress}
+              </p>
+              <p>
+                <span className="font-semibold text-slate-900">Payment Method:</span> {customerPayment}
               </p>
             </div>
             <button
@@ -1058,7 +1172,7 @@ export default function App() {
                   </p>
                   <p className="text-sm text-slate-700">Total: Rs {Number(order.total).toFixed(2)}</p>
                   <p className="text-sm text-slate-700">
-                    Payment: {order.customer.payment_method?.toUpperCase() || "N/A"}
+                    Payment: {order.customer.payment_summary || order.customer.payment_method?.toUpperCase() || "N/A"}
                   </p>
                 </div>
               ))}

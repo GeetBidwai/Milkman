@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { getCustomers, getProducts, getSubscriptions } from "../api";
+import { useEffect, useState } from "react";
+import { getCustomers, getProducts } from "../api";
+import { getStoredOrders, subscribeToStoredOrders } from "../orders";
 
 export default function AdminDashboard() {
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
-  const [subscriptions, setSubscriptions] = useState([]);
+  const [orders, setOrders] = useState(() => getStoredOrders());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -13,17 +14,15 @@ export default function AdminDashboard() {
     async function loadStats() {
       setLoading(true);
       try {
-        const [productsData, customersData, subscriptionsData] = await Promise.all([
+        const [productsData, customersData] = await Promise.all([
           getProducts(),
           getCustomers({ limit: 100 }),
-          getSubscriptions(),
         ]);
         if (!isActive) {
           return;
         }
         setProducts(productsData);
         setCustomers(customersData);
-        setSubscriptions(subscriptionsData);
         setError("");
       } catch (err) {
         if (!isActive) {
@@ -43,22 +42,15 @@ export default function AdminDashboard() {
     };
   }, []);
 
-  const priceMap = useMemo(() => {
-    const map = {};
-    products.forEach((product) => {
-      map[product.id] = Number(product.price) || 0;
-    });
-    return map;
-  }, [products]);
+  useEffect(() => subscribeToStoredOrders(setOrders), []);
 
-  const totalRevenue = subscriptions.reduce((sum, subscription) => {
-    const price = priceMap[subscription.product] || 0;
-    return sum + price * (subscription.quantity || 1);
+  const totalRevenue = orders.reduce((sum, order) => {
+    return sum + (Number(order.total) || 0);
   }, 0);
 
   const stats = [
     { label: "Total Products", value: products.length },
-    { label: "Total Orders", value: subscriptions.length },
+    { label: "Total Orders", value: orders.length },
     { label: "Total Customers", value: customers.length },
     { label: "Total Revenue", value: `Rs ${totalRevenue.toFixed(2)}` },
   ];

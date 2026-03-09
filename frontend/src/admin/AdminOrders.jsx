@@ -1,23 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
-const ORDERS_STORAGE_KEY = "milkman_order_history";
-
-function fetchOrders() {
-  try {
-    const raw = localStorage.getItem(ORDERS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
+import { getStoredOrders, subscribeToStoredOrders } from "../orders";
 
 export default function AdminOrders() {
-  const [orders, setOrders] = useState(() => fetchOrders());
+  const [orders, setOrders] = useState(() => getStoredOrders());
 
   useEffect(() => {
-    const handler = () => setOrders(fetchOrders());
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
+    return subscribeToStoredOrders(setOrders);
   }, []);
 
   const enrichedOrders = useMemo(
@@ -56,9 +45,11 @@ export default function AdminOrders() {
                   <td className="px-4 py-3 font-semibold text-slate-900">{order.id}</td>
                   <td className="px-4 py-3 text-slate-700">{order.customer.full_name}</td>
                   <td className="px-4 py-3 text-slate-600">{order.productNames}</td>
-                  <td className="px-4 py-3 text-slate-700">Rs {order.total}</td>
-                  <td className="px-4 py-3 text-slate-600 text-xs uppercase tracking-[0.3em]">
-                    {order.customer.payment_method?.toUpperCase() || "N/A"}
+                  <td className="px-4 py-3 text-slate-700">
+                    Rs {Number(order.total).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">
+                    {order.customer.payment_summary || order.customer.payment_method?.toUpperCase() || "N/A"}
                   </td>
                   <td className="px-4 py-3 text-slate-600">
                     {new Date(order.placed_at).toLocaleString()}

@@ -26,7 +26,7 @@ Protected routes wait for token-based session bootstrap before redirecting.
 ## Backend Connection
 
 - Health check call uses:
-  - for default config: `http://127.0.0.1:8000/api/health/`
+  - for default config: `http://127.0.0.1:8001/api/health/`
 - Auth calls are wired to:
   - `POST /api/register`
   - `POST /api/login`
