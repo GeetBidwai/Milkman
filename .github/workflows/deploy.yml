@@ -1,4 +1,4 @@
-nano ~/Milkman/.github/workflows/deploy.ymlname: Deploy to Azure VM
+name: Deploy to Azure VM
 
 on:
   push:
